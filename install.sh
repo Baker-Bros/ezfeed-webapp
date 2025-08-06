@@ -5,29 +5,38 @@ APP_NAME="ezfeed-webapp"
 APP_DIR="/opt/ezfeed-webapp"
 APP_ENTRY="server.js"
 NODE_VERSION="18"
-PORT="3000"
+PORT="80"
 ENVIRONMENT="production"
 RUN_USER="ezfeed-webapp"
 SERVICE_FILE="/etc/systemd/system/$APP_NAME.service"
+
+# === Check for root privileges ===
+if [[ "$EUID" -ne 0 ]]; then
+  echo "❌ This script must be run as root. Please use sudo:"
+  echo "   sudo $0"
+  exit 1
+fi
 
 # === Create system user ===
 echo "Creating system user: $RUN_USER..."
 if id "$RUN_USER" &>/dev/null; then
     echo "User $RUN_USER already exists. Skipping user creation."
 else
-    sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$RUN_USER"
+    useradd --system --no-create-home --shell /usr/sbin/nologin "$RUN_USER"
     echo "User $RUN_USER created."
 fi
 
 # === Install Node.js ===
 echo "Installing Node.js v$NODE_VERSION..."
-curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | sudo -E bash -
-sudo apt-get install -y nodejs
+curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
+apt-get install -y nodejs
 
-# === Set permissions on app directory ===
-echo "Setting permissions on $APP_DIR..."
-sudo mkdir -p "$APP_DIR"
-sudo chown -R "$RUN_USER":"$RUN_USER" "$APP_DIR"
+# === Copy app files ===
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo "Copying app files from $SCRIPT_DIR to $APP_DIR..."
+mkdir -p "$APP_DIR"
+cp -r "$SCRIPT_DIR/"* "$APP_DIR"
+chown -R "$RUN_USER:$RUN_USER" "$APP_DIR"
 
 # === Install npm dependencies ===
 echo "Installing dependencies..."
@@ -37,7 +46,7 @@ sudo -u "$RUN_USER" npm install
 # === Create systemd service ===
 echo "Creating systemd service: $SERVICE_FILE..."
 
-sudo tee "$SERVICE_FILE" > /dev/null <<EOF
+cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=Node.js App: $APP_NAME
 After=network.target
@@ -57,9 +66,9 @@ EOF
 
 # === Reload systemd and enable the service ===
 echo "Reloading systemd, enabling and starting service..."
-sudo systemctl daemon-reload
-sudo systemctl enable "$APP_NAME"
-sudo systemctl restart "$APP_NAME"
+systemctl daemon-reload
+systemctl enable "$APP_NAME"
+systemctl restart "$APP_NAME"
 
 # === Done ===
 echo "✅ Installation complete."
